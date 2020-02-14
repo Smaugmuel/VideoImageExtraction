@@ -5,25 +5,35 @@
 #include <crtdbg.h>
 //#include "ppmIO.hpp"
 
-#define OUTPUT_VIDEO
+//#define OUTPUT_VIDEO
 
 int main()
 {
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 
+
+
 	/*****************************************
 	** Independent Constants *****************
 	*****************************************/
-	const std::string VID_DIR_PATH = "C:/Users/Samuel Asp/Documents/BTH/Master_Thesis_Project/Data_sets/";	// Video input directory
-	const std::string VID_PATH = VID_DIR_PATH + "VID_20200129_150436.mp4";									// Full single video path
-	const std::string IMG_OUT_DIR_PATH = "D:/BTH Saved Files/Examensarbete/Images64x64_roiScale42/";		// Image output directory
-#ifdef OUTPUT_VIDEO
-	const std::string VID_OUT_PATH = "D:/BTH Saved Files/Examensarbete/Videos2/OutputVideo.avi";
-#endif
 	constexpr size_t FRAME_JUMP = 5;			// Number of frames to jump before sampling the next one
 	constexpr size_t VIDEO_INDEX = 1;			// Video identifier for image file names
 	constexpr size_t IMAGES_TO_PRINT = 20'000;	// Minimum number of images to print before stopping, assuming there are enough frames
+	//const cv::Size ROI_SIZE(64, 64);			// Sizes of regions of interest and images
 	const cv::Size ROI_SIZE(64, 64);			// Sizes of regions of interest and images
+	constexpr int INVERSE_SCALE_WIDTH = 8;		// Inverse scale of width, from ROI_SIZE, of the final image
+	constexpr int INVERSE_SCALE_HEIGHT = 8;		// Inverse scale of height, from ROI_SIZE, of the final image
+
+	const std::string VID_DIR_PATH = "C:/Users/Samuel Asp/Documents/BTH/Master_Thesis_Project/Data_sets/";	// Video input directory
+	const std::string VID_PATH = VID_DIR_PATH + "VID_20200129_150436.mp4";									// Full single video path
+	//const std::string IMG_OUT_DIR_PATH = "D:/BTH Saved Files/Examensarbete/Images64x64_roiScale4/";			// Image output directory
+	const std::string IMG_OUT_DIR_PATH =
+		"D:/BTH Saved Files/Examensarbete/Images_dims" +
+		std::to_string(ROI_SIZE.width) + "x" + std::to_string(ROI_SIZE.height) + "_scale" +
+		std::to_string(INVERSE_SCALE_WIDTH) + "x" + std::to_string(INVERSE_SCALE_HEIGHT) + "/";			// Image output directory
+#ifdef OUTPUT_VIDEO
+	const std::string VID_OUT_PATH = "D:/BTH Saved Files/Examensarbete/Videos/OutputVideo.avi";
+#endif
 
 	/*****************************************
 	** Read input video file *****************
@@ -38,20 +48,26 @@ int main()
 	/*****************************************
 	** Video-dependent constants *************
 	*****************************************/
-	const int WIDTH = (int)inputVideo.get(cv::CAP_PROP_FRAME_WIDTH);			// Frame width
-	const int HEIGHT = (int)inputVideo.get(cv::CAP_PROP_FRAME_HEIGHT);			// Frame height
-	const cv::Size ROI_COUNT(WIDTH / ROI_SIZE.width, HEIGHT / ROI_SIZE.height);	// Number of regions and images per dimension per frame
-	const int IMAGES_PER_FRAME = ROI_COUNT.width * ROI_COUNT.height;			// Total number of images per frame
+	const int INPUT_WIDTH = (int)inputVideo.get(cv::CAP_PROP_FRAME_WIDTH);						// Frame width
+	const int INPUT_HEIGHT = (int)inputVideo.get(cv::CAP_PROP_FRAME_HEIGHT);					// Frame height
+	const int OUTPUT_WIDTH = INPUT_WIDTH / INVERSE_SCALE_WIDTH;									// Frame width after scale
+	const int OUTPUT_HEIGHT = INPUT_HEIGHT / INVERSE_SCALE_HEIGHT;								// Frame height after scale
+	const cv::Size ROI_COUNT(OUTPUT_WIDTH / ROI_SIZE.width, OUTPUT_HEIGHT / ROI_SIZE.height);	// Number of regions and images per frame
+	const int IMAGES_PER_FRAME = ROI_COUNT.width * ROI_COUNT.height;							// Total number of images per frame
 
 	const std::string FILE_NAME_PREFIX =
-		"Clouds_vid_" + std::to_string(VIDEO_INDEX) +
-		"_dims_" + std::to_string(ROI_SIZE.width) + "x" + std::to_string(ROI_SIZE.height) +
-		"_frame_";
+		"Clouds_vid" + std::to_string(VIDEO_INDEX) +
+		
+		//"_dims_" + std::to_string(ROI_SIZE.width) + "x" + std::to_string(ROI_SIZE.height) +
+		//"_scale_" + std::to_string(INVERSE_SCALE_WIDTH) + "x" + std::to_string(INVERSE_SCALE_HEIGHT) +
+		
+		"_frame";
 
 	/*****************************************
 	** Variables *****************************
 	*****************************************/
 	cv::Mat frame;											// Frame retrieved from video
+	cv::Mat scaledFrame;									// Frame after scaling
 	cv::Mat region;											// Image created from region of frame
 	cv::Rect roi(0, 0, ROI_SIZE.width, ROI_SIZE.height);	// Current region area
 	size_t frameIndex = FRAME_JUMP;							// Current frame index. Does not start at 0 to avoid invalid initial frames
@@ -91,6 +107,12 @@ int main()
 		// Quit when reaching the end of the video
 		if (frame.empty()) break;
 
+		// Resize unless scale is equal to 1x1
+		if constexpr (!(INVERSE_SCALE_WIDTH == 1 && INVERSE_SCALE_HEIGHT == 1))
+			cv::resize(frame, scaledFrame, cv::Size(), 1.0 / INVERSE_SCALE_WIDTH, 1.0 / INVERSE_SCALE_HEIGHT);
+		else
+			scaledFrame = frame;
+
 #ifdef OUTPUT_VIDEO
 		// Append frame to output video
 		outputVideo << frame;
@@ -98,7 +120,7 @@ int main()
 
 		// Frame dependent file name prefix
 		const std::string FILE_NAME_FRAME_PREFIX = FILE_NAME_PREFIX +
-			std::to_string(frameIndex) + "_area_";
+			std::to_string(frameIndex) + "_area";
 
 		// Print images for every region
 		for (int x = 0; x < ROI_COUNT.width; x++)
@@ -110,7 +132,7 @@ int main()
 				roi.y = ROI_SIZE.height * y;
 
 				// Retrieve region of image
-				region = frame(roi);
+				region = scaledFrame(roi);
 
 				// Final full file path
 				const std::string fullPath =
@@ -135,6 +157,7 @@ int main()
 	** Release OpenCV resources **************
 	*****************************************/
 	region.release();
+	scaledFrame.release();
 	frame.release();
 	inputVideo.release();
 #ifdef OUTPUT_VIDEO

@@ -3,20 +3,68 @@
 #include <stdlib.h>
 #include <sstream>
 #include <fstream>
+#include <iostream>
 
 namespace PPM
 {
-	struct PPMFile
+	struct PPMFile final
 	{
+		PPMFile()
+			: name("")
+			, magicNumber("")
+			, width(0)
+			, height(0)
+			, maxValue(0)
+			, data(nullptr)
+			, wasSuccessful(false)
+		{ }
+		PPMFile(const PPMFile& other) = delete;
+		PPMFile(PPMFile&& other) noexcept
+			: name(std::move(other.name))
+			, magicNumber(std::move(other.magicNumber))
+			, width(std::move(other.width))
+			, height(std::move(other.height))
+			, maxValue(std::move(other.maxValue))
+			, data(std::move(other.data))
+			, wasSuccessful(std::move(other.wasSuccessful))
+		{
+			other.data = nullptr;
+		}
+
+		~PPMFile()
+		{
+			delete[] data;
+		}
+
+		PPMFile& operator=(const PPMFile& other) = delete;
+		PPMFile& operator=(PPMFile&& other) noexcept
+		{
+			delete[] data;
+			
+			name = std::move(other.name);
+			magicNumber = std::move(other.magicNumber);
+			width = std::move(other.width);
+			height = std::move(other.height);
+			maxValue = std::move(other.maxValue);
+			data = std::move(other.data);
+			wasSuccessful = std::move(other.wasSuccessful);
+
+			other.data = nullptr;
+
+			return *this;
+		}
+
 		std::string name;
 		std::string magicNumber;
 		size_t width;
 		size_t height;
 		size_t maxValue;
 		unsigned char* data;
+		bool wasSuccessful;
 	};
 
-	bool ReadBinary(PPMFile& ppmFile)
+	// Called by read(), do not call manually
+	void readBinary(PPMFile& ppmFile)
 	{
 		size_t nValues;
 		size_t bytesRead;
@@ -29,9 +77,7 @@ namespace PPM
 		// Open file
 		error = fopen_s(&file, ppmFile.name.c_str(), "rb");
 		if (error || !file)
-		{
-			return false;
-		}
+			return;
 
 		// Calculate the number of characters in the header
 		headerOffset =
@@ -58,63 +104,72 @@ namespace PPM
 		if (bytesRead != nValues)
 		{
 			std::cout << "Could not read file";
-			return false;
+			return;
 		}
 
-		return true;
+		ppmFile.wasSuccessful = true;
+		return;
 	}
-	bool ReadPlain(PPMFile& ppmFile)
+
+	// Called by read(), do not call manually
+	void readPlain(PPMFile& ppmFile)
 	{
 		std::ifstream infile;
 		std::string str;
 		infile.open(ppmFile.name, std::ifstream::in);
 		if (!infile.is_open())
-			return false;
+			return;
 
 		// Read the magic number, width, height, and max value
 		infile >> str >> str >> str >> str;
 
-		// Each pixel has three values
-		size_t nValues = ppmFile.width * ppmFile.height * 3;
-		ppmFile.data = new unsigned char[nValues];
+		// Each pixel has three values (RGB)
+		const size_t N_VALUES = ppmFile.width * ppmFile.height * 3;
+		ppmFile.data = new unsigned char[N_VALUES];
 
 		// Read all the pixel data
-		for (size_t i = 0; i < nValues; i++)
+		for (size_t i = 0; i < N_VALUES; i++)
 		{
-			int value;
+			short value;
 			infile >> value;
 			ppmFile.data[i] = static_cast<unsigned char>(value);
 		}
 
 		infile.close();
 
-		return true;
+		ppmFile.wasSuccessful = true;
+		return;
 	}
-	bool Read(PPMFile& ppmFile, const char* fileName)
+	
+	// Calls either readBinary() or readPlain() depending on the file header
+	[[no_discard]] PPMFile read(std::string fileName)
 	{
+		PPMFile ppmFile;
 		ppmFile.name = fileName;
 
-		// Read the file header
+		// Open file
 		std::ifstream infile;
 		infile.open(fileName, std::ifstream::in);
 		if (!infile.is_open())
-			return false;
+			return ppmFile;
+
+		// Read only the file header
 		infile >> ppmFile.magicNumber >> ppmFile.width >> ppmFile.height >> ppmFile.maxValue;
 		infile.close();
 
 		if (ppmFile.magicNumber == "P3")
 		{
-			return ReadPlain(ppmFile);
+			readPlain(ppmFile);
 		}
 		else if (ppmFile.magicNumber == "P6")
 		{
-			return ReadBinary(ppmFile);
+			readBinary(ppmFile);
 		}
 
-		return false;
+		return ppmFile;
 	}
 
-	bool WriteBinary(unsigned char* data, size_t width, size_t height, size_t maxValue, const char* fileName)
+	bool writeBinary(unsigned char* data, size_t width, size_t height, size_t maxValue, const char* fileName)
 	{
 		FILE* file;
 		errno_t error;
@@ -133,15 +188,17 @@ namespace PPM
 
 		return bytesWritten == bytesToWrite;
 	}
-	void WritePlain(unsigned char* data, size_t width, size_t height, size_t maxValue, const char* fileName)
+	bool writePlain(unsigned char* data, size_t width, size_t height, size_t maxValue, const char* fileName)
 	{
 		std::ofstream outFile;
 		outFile.open(fileName);
+		if (!outFile.is_open())
+			return false;
 
 		outFile << "P3\n" << width << "\n" << height << "\n" << maxValue << "\n";
 
-		size_t nValues = width * height * 3ULL;
-		for (size_t i = 0; i < nValues; i++)
+		const size_t N_VALUES = width * height * 3ULL;
+		for (size_t i = 0; i < N_VALUES; i++)
 		{
 			outFile << static_cast<int>(data[i]) << " ";
 
@@ -155,5 +212,7 @@ namespace PPM
 		}
 
 		outFile.close();
+
+		return true;
 	}
 }
