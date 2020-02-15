@@ -3,7 +3,7 @@
 #include <opencv2/imgproc.hpp>
 #include <iostream>
 #include <crtdbg.h>
-//#include "ppmIO.hpp"
+#include "ppmIO.hpp"
 
 //#define OUTPUT_VIDEO
 
@@ -11,7 +11,13 @@ int main()
 {
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 
-
+	unsigned short data[] =
+	{
+		255, 255, 255, 0, 0, 0,
+		0, 0, 0, 255, 255, 255
+	};
+	PPM::writePlain((unsigned char*)(void*)data, 2, 2, 65535, "testFile.ppm");
+	auto file = PPM::read("testFile.ppm");
 
 	/*****************************************
 	** Independent Constants *****************

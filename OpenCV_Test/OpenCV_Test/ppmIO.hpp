@@ -54,6 +54,23 @@ namespace PPM
 			return *this;
 		}
 
+		size_t headerOffset() const
+		{
+			return 
+				2 +									// Magic number
+				1 +									// Whitespace
+				std::to_string(width).size() +		// Width
+				1 +									// Whitespace
+				std::to_string(height).size() +		// Height
+				1 +									// Whitespace
+				std::to_string(maxValue).size() +	// Max value
+				1;									// Whitespace
+		}
+		size_t elementSize() const
+		{
+			return (maxValue < 256 ? 1 : 2);
+		}
+
 		std::string name;
 		std::string magicNumber;
 		size_t width;
@@ -61,47 +78,33 @@ namespace PPM
 		size_t maxValue;
 		unsigned char* data;
 		bool wasSuccessful;
+
+		static constexpr size_t CHANNELS = 3;
 	};
 
 	// Called by read(), do not call manually
 	void readBinary(PPMFile& ppmFile)
 	{
-		size_t nValues;
-		size_t bytesRead;
-		size_t headerOffset;
 		FILE* file;
-		char* buffer;
-		errno_t error;
-
 		
 		// Open file
-		error = fopen_s(&file, ppmFile.name.c_str(), "rb");
+		errno_t error = fopen_s(&file, ppmFile.name.c_str(), "rb");
 		if (error || !file)
 			return;
 
-		// Calculate the number of characters in the header
-		headerOffset =
-			2 +											// Magic number
-			1 +											// Whitespace
-			std::to_string(ppmFile.width).size() +		// Width
-			1 +											// Whitespace
-			std::to_string(ppmFile.height).size() +		// Height
-			1 +											// Whitespace
-			std::to_string(ppmFile.maxValue).size() +	// Max value
-			1;											// Whitespace
-
-		// Read away the header to move the file pointer
-		buffer = new char[headerOffset];
-		fread(buffer, 1, headerOffset, file);
-		delete[] buffer;
-
-		// Read all the pixel data
-		nValues = ppmFile.width * ppmFile.height * 3;
-		ppmFile.data = new unsigned char[nValues];
-		bytesRead = fread(ppmFile.data, 1, nValues, file);
+		// Move file pointer to data after header
+		fseek(file, ppmFile.headerOffset(), SEEK_SET);
+		
+		// Figure out element size
+		const size_t ELEMENT_SIZE = ppmFile.elementSize();
+		
+		// Read pixel data
+		const size_t N_VALUES = ppmFile.width * ppmFile.height * PPMFile::CHANNELS;
+		ppmFile.data = new unsigned char[N_VALUES * ELEMENT_SIZE];
+		const size_t BYTES_READ = fread(ppmFile.data, ELEMENT_SIZE, N_VALUES, file);
 		fclose(file);
 
-		if (bytesRead != nValues)
+		if (BYTES_READ != N_VALUES * ELEMENT_SIZE)
 		{
 			std::cout << "Could not read file";
 			return;
@@ -116,24 +119,45 @@ namespace PPM
 	{
 		std::ifstream infile;
 		std::string str;
+
+		// Open file
 		infile.open(ppmFile.name, std::ifstream::in);
 		if (!infile.is_open())
 			return;
-
-		// Read the magic number, width, height, and max value
+		
+		// Move file pointer to data after header
 		infile >> str >> str >> str >> str;
+		//infile.seekg(ppmFile.headerOffset() - 1, std::ios::cur);
+		
+		// Figure out element size
+		const size_t ELEMENT_SIZE = ppmFile.elementSize();
 
-		// Each pixel has three values (RGB)
-		const size_t N_VALUES = ppmFile.width * ppmFile.height * 3;
-		ppmFile.data = new unsigned char[N_VALUES];
+		// Allocate memory
+		const size_t N_VALUES = ppmFile.width * ppmFile.height * PPMFile::CHANNELS;
+		ppmFile.data = new unsigned char[N_VALUES * ELEMENT_SIZE];
 
-		// Read all the pixel data
-		for (size_t i = 0; i < N_VALUES; i++)
+		if (ELEMENT_SIZE == 1)
 		{
-			short value;
-			infile >> value;
-			ppmFile.data[i] = static_cast<unsigned char>(value);
+			// Read all the pixel data
+			for (size_t i = 0; i < N_VALUES; i++)
+			{
+				short value;
+				infile >> value;
+				ppmFile.data[i] = value;
+			}
 		}
+		else
+		{
+			// Read all the pixel data
+			for (size_t i = 0; i < N_VALUES; i++)
+			{
+				short value;
+				infile >> value;
+				ppmFile.data[i * 2 + 0] = value >> 8;	// First byte
+				ppmFile.data[i * 2 + 1] = value & 0xff;	// Second byte
+			}
+		}
+		
 
 		infile.close();
 
